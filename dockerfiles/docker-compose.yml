@@ -1,0 +1,111 @@
+version: '3.8'
+
+# Define persistent volumes for our data
+volumes:
+  prometheus-data: {}
+  grafana-data: {}
+
+# All services will join this network
+networks:
+  monitoring-net:
+    driver: bridge # Rede padrão para comunicação local/descoberta
+
+services:
+  # 1. Traefik: O Reverse Proxy e Load Balancer
+  traefik:
+    image: traefik:v3.6.2
+    container_name: traefik
+    # Monta a configuração estática e o socket Docker para auto-descoberta
+    volumes:
+      - ../traefik.yml:/etc/traefik/traefik.yml:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    ports:
+      # Porta HTTP e HTTPS (pontos de entrada)
+      - "80:80"
+      - "443:443"
+      # Porta do Dashboard do Traefik
+      - "9091:8080" 
+    networks:
+      - monitoring-net
+    restart: always
+
+  # 2. um_drive: Serviço Escalável (o Traefik trata do Load Balancing)
+  um_drive:
+    image: um-drive-image:latest
+    build:
+      context: ..
+      dockerfile: ./dockerfiles/Dockerfile.cmd
+      
+    # LABELS DE CONFIGURAÇÃO DO TRAEFIK (CRUCIAIS)
+    labels:
+      # Habilita o Traefik para este serviço
+      - "traefik.enable=true" 
+      # Define a regra de roteamento: acesso via umdrive.localhost
+      - "traefik.http.routers.umdrive.rule=Host(`umdrive.localhost`)"
+      # Roteia para o entrypoint HTTP
+      - "traefik.http.routers.umdrive.entrypoints=http"
+      # Balanceamento de carga: porta interna 5000 (Gunicorn)
+      - "traefik.http.services.umdrive.loadbalancer.server.port=5000"
+      # Algortimo de balanceamento (Round Robin por padrão) - https://doc.traefik.io/traefik/reference/routing-configuration/http/load-balancing/service/
+      # - "traefik.http.services.umdrive.loadbalancer.strategy=leasttime"
+
+    # Montagem de Volume (NFS)
+    # A diretoria local deve ser montada como NFS e exposta ao container
+    volumes:
+      - ./:/app 
+      
+    working_dir: /app
+    networks:
+      - monitoring-net
+    # ESCALA HORIZONTAL: Cria 1 container
+    scale: 3
+    restart: always
+
+  # 3. cAdvisor: O coletor de métricas
+  cadvisor:
+    image: gcr.io/cadvisor/cadvisor:v0.47.2
+    container_name: cadvisor
+    privileged: true
+    devices:
+      - /dev/kmsg
+    volumes:
+      - /:/rootfs:ro
+      - /var/run:/var/run:rw
+      - /sys:/sys:ro
+      - /var/lib/docker/:/var/lib/docker:ro
+    ports:
+      - "8080:8080"
+    networks:
+      - monitoring-net
+    restart: always
+
+  # 4. Prometheus: O banco de dados de métricas
+  prometheus:
+    image: prom/prometheus:v2.47.2
+    container_name: prometheus
+    volumes:
+      - ../prometheus.yml:/etc/prometheus/prometheus.yml
+      - prometheus-data:/prometheus
+    ports:
+      - "9090:9090"
+    command: --config.file=/etc/prometheus/prometheus.yml
+    networks:
+      - monitoring-net
+    restart: always
+
+  # 5. Grafana: O dashboard
+  grafana:
+    image: grafana/grafana:10.2.0
+    container_name: grafana
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ./grafana/provisioning/:/etc/grafana/provisioning/
+      - ./grafana/dashboards/:/var/lib/grafana/dashboards/
+    ports:
+      - "3000:3000"
+    environment:
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+    networks:
+      - monitoring-net
+    restart: always

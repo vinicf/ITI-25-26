@@ -1,0 +1,20 @@
+global:
+  scrape_interval: 5s # How often to scrape
+
+scrape_configs:
+  # Job to scrape Prometheus itself
+  - job_name: 'prometheus'
+    static_configs:
+      - targets: ['localhost:9090']
+
+  # Job to scrape cAdvisor
+  - job_name: 'cadvisor'
+    static_configs:
+      # 'cadvisor:8080' works because they are on the same Docker network
+      - targets: ['cadvisor:8080']
+
+  # Job to scrape um_drive application
+  - job_name: 'um_drive'
+    static_configs:
+      # 'um_drive:5000' works because they are on the same Docker network
+      - targets: ['um_drive:5000']

@@ -1,0 +1,20 @@
+# Pontos de entrada (portas)
+entryPoints:
+  http:
+    address: ":80"
+  websecure:
+    address: ":443"
+
+# Configuração do Provedor Docker
+providers:
+  docker:
+    # Apenas containers com a label 'traefik.enable=true' serão roteados
+    exposedByDefault: false 
+    # Monitora o daemon Docker na rede de monitorização
+    network: monitoring-net 
+
+# Configuração de Acesso (para debug e painel)
+api:
+  dashboard: true
+  # Habilitado para acesso ao painel Traefik via porta 9091
+  insecure: true
